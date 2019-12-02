@@ -1,3 +1,4 @@
+import pickle
 from sklearn.model_selection import train_test_split
 from numpy import array
 from keras.preprocessing.text import Tokenizer
@@ -35,26 +36,20 @@ all_results = manager.dict()  # this is for sharing data across processes and al
 
 modeling_scenarios = OrderedDict()
 
-TRACE_FILE_NAMES = [
-    'swaptions_1_1M.out',
-    'bodytrack_1_1M.out',
-    'canneal_1_1M.out',
-    'ferret_1_1M.out',
-    'fluidanimate_1_1M.out',
-    'blackscholes_1_1M.out',
-    'swaptions_old_1_1M.out',
-    'blackscholes_old_1_1M.out',
-    'fluidanimate_old_1_1M.out',
-    'dedup_1_1M.out',
-    'facesim_1_1M.out',
-    'freqmine_1_1M.out',
-    'raytrace_1_1M.out',
-    'streamcluster_1_1M.out',
-    'vips_1_1M.out',
-    'x264_1_1M.out'
-]  # more to be added here
 
-def run_dc_lstm(P_trace, P_epoch):
+if platform.system() == "Linux":
+    PROJECT_ROOT_DIRECTORY = "/home/MemMAP/"
+    TRACE_DIRECTORY = "/home/MemMAP/data/"
+    sys.path.append(PROJECT_ROOT_DIRECTORY)
+    os.environ["TMP"] = "/tmp"
+    USE_GPU = False  # True
+else:
+    PROJECT_ROOT_DIRECTORY = "E:/home/MemMAP/"
+    TRACE_DIRECTORY = "E:/home/MemMAP/data/"
+    sys.path.append(PROJECT_ROOT_DIRECTORY)
+    USE_GPU = False
+
+def run_dc_lstm(P_trace, P_test, P_epoch,P_model_name,B_use_exist):
     # def run_scenarios_diff(traces, traces_test, fpga, new_re):
 
     # fpga:["fpga", "lsb_fpga", "vanilla"]
@@ -65,18 +60,6 @@ def run_dc_lstm(P_trace, P_epoch):
     # # 50/50 Split Analysis
     # pretrain_type
 
-    if platform.system() == "Linux":
-        PROJECT_ROOT_DIRECTORY = "/home/MemMAP/"
-        TRACE_DIRECTORY = "/home/MemMAP/data/"
-        sys.path.append(PROJECT_ROOT_DIRECTORY)
-        os.environ["TMP"] = "/tmp"
-        USE_GPU = False  # True
-    else:
-        PROJECT_ROOT_DIRECTORY = "E:/home/MemMAP/"
-        TRACE_DIRECTORY = "E:/home/MemMAP/data/"
-        sys.path.append(PROJECT_ROOT_DIRECTORY)
-        USE_GPU = False
-
     # File Settings
 
     DELETE_OLD_RESULTS = False
@@ -85,7 +68,7 @@ def run_dc_lstm(P_trace, P_epoch):
 
     PERFORM_EDA = False
 
-    NOTEBOOK_ID = "DC_LSTM"
+    NOTEBOOK_ID = "DC_LSTM_Pretrain"
 
     README_TXT = """# README
     ## Ensemble modeling of memory access timeseries (using shapelets, LSTMs and more)
@@ -95,23 +78,7 @@ def run_dc_lstm(P_trace, P_epoch):
     # Inputs:
     # TRACE_DIRECTORY = PROJECT_ROOT_DIRECTORY + "data/input/"
 
-    # Size of files in number of rows. This should be implemented as a single dict for both
-    TRACE_FILE_NAME_SIZES = {
-        'swaptions_1_1M.out': 1000000,
-        'blackscholes_1_1M.out': 1000000,
-        'bodytrack_1_1M.out': 1000000,
-        'canneal_1_1M.out': 1000000,
-        'ferret_1_1M.out': 1000000,
-        'fluidanimate_1_1M.out': 1000000,
-        'dedup_1_1M.out': 1000000,
-        'facesim_1_1M.out': 1000000,
-        'freqmine_1_1M.out': 1000000,
-        'raytrace_1_1M.out': 1000000,
-        'streamcluster_1_1M.out': 1000000,
-        'vips_1_1M.out': 1000000,
-        'x264_1_1M.out': 1000000
-    }
-    ###
+    TRACE_FILE_NAMES = ['train.out']  # more to be added here
 
     # Outputs:
     NOTEBOOK_ROOT_DIRECTORY = PROJECT_ROOT_DIRECTORY + "data/output/notebooks/%s/" % NOTEBOOK_ID
@@ -458,247 +425,8 @@ def run_dc_lstm(P_trace, P_epoch):
         return entropy
 
     def dataset_creator(scenario):
-        print(inspect.getouterframes(inspect.currentframe())[0].function)
-        use_manual_encoding = scenario['use_manual_encoding']
-        app_name = scenario['app_name']
-        decompose_timeseries = scenario['decompose_timeseries']
-        decomposition_frequency = scenario['decomposition_frequency']
-        test_ratio = scenario['test_ratio']
-        on_the_fly_testing = scenario['on_the_fly_testing']
-        plot_timeseries = scenario['plot_timeseries']
-        look_back = scenario['look_back_window']
-        scenario_name = scenario['scenario_name']
-        vocabulary_maximum_size = scenario['vocabulary_maximum_size']
-        vocabulary_mimimum_word_frequency_quantile = scenario['vocabulary_mimimum_word_frequency_quantile']
-        model_diffs = scenario['model_diffs']
-        lstm_batch_size = scenario['lstm_batch_size']
-        lstm_epochs = scenario['lstm_epochs']
-        verbosity = scenario['verbosity']
-        dropout_ratio = scenario['dropout_ratio']
-        lstm_size = scenario['lstm_size']
-        embedding_size = scenario['embedding_size']
-        prediction_batch_size = scenario['prediction_batch_size']
-        online_retraining = scenario['online_retraining']
-        online_learning_accuracy_threshold = scenario['online_learning_accuracy_threshold']
-        online_retraining_periods = scenario['online_retraining_periods']
-        online_retraining_period_size = scenario['online_retraining_period_size']
-        number_of_rows_to_model = scenario['number_of_rows_to_model']
-        number_of_rows_to_skip = scenario['number_of_rows_to_skip']
-        keep_read_access_only = scenario['keep_read_access_only']
-        prune_lsb = scenario['prune_lsb']
-        prune_length = scenario['prune_length']
-        pretrain_type = scenario["pretrain_type"]
-        bit_size = scenario["bit_size"]
-        convert_output_to_binary = scenario['convert_output_to_binary']  # this is used for FPGA implementation.
-
-        max_test_accuracy = 1
-        # used to reduce accuracy appropriatelly in case of rounding/approximations in the prediction address.
-
-        tokenizer = None
-        tokenizer2 = None
-
-        # This is used to represent rare words and not get encoded individually, which then will be
-        # flagged as false positives (or negatives) and use them to reduce the model accuracy
-        # All the rare words will be encoded with the following value.
-        dummy_word = "0xffffffff"
-        dummy_word_index = -1  # this is the index of the dummy word (to be set later)
-
-        # this is to be used to spoof the index of the dummy word and thus force false positive
-        # determination during testing (since these words cannot be predicted)
-        dummy_index = -1
-
-        # Set total rows to None to load all the rows for online learning. Else keep as many as we need.
-        total_rows = scenario['number_of_rows_to_model'] if not online_retraining else \
-            scenario['number_of_rows_to_model'] + online_retraining_period_size * (online_retraining_periods + 2)
-        print("Running for %d" % total_rows)
-
-        if pretrain_type is None:
-            dataset_verbose = pd.read_csv(TRACE_DIRECTORY + scenario['trace_file_name'], sep=" ", nrows=total_rows,
-                                          skiprows=scenario['number_of_rows_to_skip'])
-        else:
-            ### This implements testing with a pretrained model
-            # TODO: put this info about the rerun files at the begining of the script as a dictionary.
-            comparison_file_name = scenario['trace_file_name']
-            if pretrain_type == "rerun":
-                comparison_file_name = comparison_file_name.replace("_1M.out", "") + "_repeat_1M.out"
-            if pretrain_type == "new":
-                comparison_file_name = comparison_file_name.replace("1_", "2_")
-            if pretrain_type == "diff":
-                return "diff"
-                # Pem1020
-                # comparison_file_name = traces_test[0]
-            ###
-            dataset_verbose1 = pd.read_csv(TRACE_DIRECTORY + scenario['trace_file_name'], sep=" ",
-                                           nrows=int(math.floor(total_rows / 2.0)),
-                                           skiprows=scenario['number_of_rows_to_skip'])
-            dataset_verbose1.columns = ["instruction", "type", "address"]
-
-            dataset_verbose2 = pd.read_csv(TRACE_DIRECTORY + comparison_file_name, sep=" ",
-                                           nrows=int(math.ceil(total_rows / 2.0)),
-                                           skiprows=scenario['number_of_rows_to_skip'] + int(
-                                               math.floor(total_rows / 2.0)))
-            dataset_verbose2.columns = ["instruction", "type", "address"]
-
-            dataset_verbose = dataset_verbose1.append(dataset_verbose2, ignore_index=True)
-
-        dataset_verbose.columns = ["instruction", "type", "address"]
-        if keep_read_access_only:
-            dataset_verbose = dataset_verbose[dataset_verbose["type"] == "R"]
-        # print dataset_verbose.head()
-        # print dataset_verbose.describe()
-
-        dataset = dataset_verbose['address']
-        del dataset_verbose
-
-        if not use_manual_encoding:  # use keras
-            if model_diffs:
-                print("Tokenizing ...")
-                # Tokenize raw memory address to convert them to integers
-                tokenizer = Tokenizer()
-                tokenizer.fit_on_texts(list(dataset))
-                concat_dataset = [' '.join(list(dataset))]
-                # This is used only for plotting purposes
-                encoded_raw = tokenizer.texts_to_sequences(concat_dataset)[0]
-
-                vocab_size_raw = len(tokenizer.word_index) + 1
-                print('Raw Vocabulary Size: %d' % vocab_size_raw)
-
-                # calculate diffs of integer memory addresses
-                # print dataset
-
-                encoded_raw_diff = difference16(data=list(dataset), lag=1, prune_lsb=prune_lsb,
-                                                prune_length=prune_length)
-
-                encoded_raw_diff_str = ["%s%d" % ("1x" if x < 0 else "0x", abs(x)) for x in encoded_raw_diff]
-                df = pd.DataFrame(encoded_raw_diff_str)
-                # print df
-
-                df.columns = ['delta']
-
-                df2 = pd.DataFrame(pd.Series(encoded_raw_diff_str).value_counts())
-                # print "Length2 %s" % len(df2.index)
-                df2.columns = ['total']
-                df2['delta'] = df2.index
-                # print "xxxxx", df2
-                df2 = df2.reset_index(drop=True)
-                df2.columns = ['total', 'delta']
-                # print "V2", df2
-                bit_size_offset = 3
-
-                df2_2 = df2[['total']].copy()
-                df2_2['cumsum'] = df2_2.sort_values(by="total", ascending=False)[['total']].cumsum(axis=0)
-
-                tmp_total_rows = df2['total'].sum()
-
-                # Get the row index where the cumulative quantity reaches half the total.
-                # print "AAA44", tmp_total_rows, df2_2.head()
-                df2_3 = df2_2[
-                    df2_2['cumsum'] < vocabulary_mimimum_word_frequency_quantile * tmp_total_rows]  # .idxmax()
-                # print "AAA34", myindex, tmp_total_rows
-                # print df2_2.head()
-
-                # Get the price at that index
-                vocabulary_mimimum_word_frequency = df2_3.loc[
-                    df2_3['cumsum'].idxmax(), 'total']  # int(list(df2_2['total'].iloc[myindex])[0])
-
-                if vocabulary_mimimum_word_frequency == 1:
-                    vocabulary_mimimum_word_frequency = 0  # since 1 is going to prune a lot of words
-                print("Quantile based Minimum Frequency for %s is %s" % (
-                    vocabulary_mimimum_word_frequency_quantile, vocabulary_mimimum_word_frequency))
-                # df2 = df2[df2['total'] > vocabulary_mimimum_word_frequency]
-                # print "xxxxxxx", df2.head()
-
-                # print "xxxxx", df2.head()
-
-                if vocabulary_maximum_size and not convert_output_to_binary:
-                    df2 = df2[(df2.index > vocabulary_maximum_size) | (
-                            df2['total'] < vocabulary_mimimum_word_frequency)]  # TODO: make it <=
-                else:
-                    df2 = df2[(df2.index > math.pow(2, bit_size) - bit_size_offset) | (df2[
-                                                                                           'total'] < vocabulary_mimimum_word_frequency)]  # we subtract words to allow for the dummy word to be also stored.
-
-                # print "xxxxx", df2.head()
-
-                # vocabulary_mimimum_word_frequency = np.quantile(encode_mem_accesses(list(encoded_raw_diff_str)), vocabulary_mimimum_word_frequency_quantile) # angelos version  , vocabulary_mimimum_word_frequency_quantile)
-
-                # Set a dummy value to represent the ignored deltas. This will be converted later to a unique integer using a second tokenizer.
-                # print "Length2 %s" % len(df2.index)
-                df.loc[df.delta.isin(df2.delta), ['delta']] = dummy_word
-                encoded_raw_diff_pruned = df['delta']
-
-
-                del df, df2
-
-                # Calclulate accuracy reduction due to vocabulary pruning.
-                tmp_train, tmp_test = train_test_split(encoded_raw_diff_pruned, test_size=test_ratio, shuffle=False)
-                total_removals = Counter(encoded_raw_diff_pruned)[dummy_word]
-                total_rows = len(encoded_raw_diff_pruned)
-                train_removals = Counter(tmp_train)[dummy_word]
-                train_total = len(tmp_train)
-                test_removals = Counter(tmp_test)[dummy_word]
-                test_total = len(tmp_test)
-                print(total_removals, total_rows, train_removals, train_total, test_removals, test_total)
-                max_test_accuracy = 1 - test_removals / test_total
-                print("Max Accuracy: %s" % max_test_accuracy)
-                print("Total Removals: %s" % total_removals)
-
-                # Tokenize again the pruned differentials to produce unique vocabulary (classes)
-                encoded_raw_diff_pruned_str = [str(x) for x in list(encoded_raw_diff_pruned)]
-                tokenizer2 = Tokenizer()
-                tokenizer2.fit_on_texts(encoded_raw_diff_pruned_str)
-                encoded_final = tokenizer2.texts_to_sequences([' '.join(encoded_raw_diff_pruned_str)])[0]
-                final_vocab_size = len(tokenizer2.word_index) + 1
-                print('Pruned Vocabulary Size: %d' % final_vocab_size)
-
-                for word, index in tokenizer2.word_index.items():
-                    if word == dummy_word:
-                        print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%", word, index)
-                        dummy_word_index = index
-                        break
-            #             set_plot_size(6,6)
-            #             _ = plt.hist(encoded_final, bins=100)
-            #             _ = plt.grid(True)
-            #             _ = plt.title("Histogram Of All Memory Deltas After Prunning\nFor The %s App" % app_name)
-            #             _ = plt.show()
-
-            else:
-                tokenizer = Tokenizer()
-                tokenizer.fit_on_texts(list(dataset))
-                encoded_final = tokenizer.texts_to_sequences([' '.join(list(dataset))])[0]
-                final_vocab_size = len(tokenizer.word_index) + 1
-        else:
-            # TODO: move this in the diff section or remove completely.
-            return 0
-
-        if decompose_timeseries:
-            return 1
-
-        # The series below are for visulaization purposes only.
-        if plot_timeseries:
-            if model_diffs:
-                # encoded_raw_train, encoded_raw_test = train_test_split(encoded_raw, test_size=test_ratio, shuffle=False)
-                encoded_raw_diff_train, encoded_raw_diff_test = train_test_split(encoded_raw_diff, test_size=test_ratio,
-                                                                                 shuffle=False)
-                # plot_memory_trace(train_data=encoded_raw_train, test_data=encoded_raw_test, rows=200000, app_name=app_name, scenario_name=scenario_name+" Raw")
-                plot_memory_trace(train_data=encoded_raw_diff_train, test_data=encoded_raw_diff_test, rows=200000,
-                                  app_name=app_name, scenario_name=scenario_name + " Raw Diff")
-
-            encoded_train, encoded_test = train_test_split(encoded_final, test_size=test_ratio, shuffle=False)
-            plot_memory_trace(train_data=encoded_train, test_data=encoded_test, rows=2000, app_name=app_name,
-                              scenario_name=scenario_name + " Final")
-
-        sequences = create_windowed_dataset(encoded_final, look_back)
-
-        print('Final Vocabulary Size: %d' % final_vocab_size)
-        print('Total Sequences: %d' % len(sequences))
-
-        # Pad the sequences to the same length (is not really needed here since we have fixed input windows).
-        # See documentation in the source code here: https://github.com/keras-team/keras-preprocessing/blob/master/keras_preprocessing/sequence.py
-        max_length = max([len(seq) for seq in sequences])
-        sequences = pad_sequences(sequences, maxlen=max_length, padding='pre')
-
-        # print encoded_final, sequences, final_vocab_size
-
+        with open('E:/Lab/PyCharm/Pem_MEMSYS_try3/Anglos/data/pickle/pretrain.pkl', 'rb') as f:  # Python 3: open(..., 'rb')
+            encoded_final, sequences, final_vocab_size, tokenizer, tokenizer2, max_test_accuracy, max_length, dummy_word, dummy_word_index, dummy_index, vocab_size_raw, dataset = pickle.load(f)
         return encoded_final, sequences, final_vocab_size, tokenizer, tokenizer2, max_test_accuracy, max_length, dummy_word, dummy_word_index, dummy_index, vocab_size_raw, dataset
 
     def run_lstm_model(scenario=None):
@@ -825,15 +553,23 @@ def run_dc_lstm(P_trace, P_epoch):
 
             else:
                 y = to_categorical(y, num_classes=final_vocab_size)
+            # print y
+            # y = np.array([np.array(tmp_y) for tmp_y in y])
+            # y = y.reshape((y.shape[0], 16))
+            # print X.shape, y.shape
+            # print "A8", y.reshape(1, -1)
 
             if on_the_fly_testing:
                 return 0
             else:
                 X_train, X_test = train_test_split(X, test_size=test_ratio, shuffle=False)
                 y_train, y_test = train_test_split(y, test_size=test_ratio, shuffle=False)
+                # new@05.2, useful?
                 y_train_raw, y_test_raw = train_test_split(dataset, test_size=test_ratio, shuffle=False)
 
-
+                # print "A2", y_train, y_test, y
+                # print X, X_train, X_test
+                # print y, y_train, y_test
 
                 # =====================================================================================================
                 # IMPORTANT: The code below modifies the dummy word mappings to be forcing a false positive to be counted.
@@ -860,7 +596,7 @@ def run_dc_lstm(P_trace, P_epoch):
                     print("Overwritting Ignored Words Completted")
                 # =====================================================================================================
                 # print X_train, y_train
-                model_file_name = NOTEBOOK_PICKLES_DIRECTORY + "%s_train_test_split_%s.h5" % (scenario_name, unique_key)
+                model_file_name = NOTEBOOK_PICKLES_DIRECTORY + P_model_name+".h5"
 
                 if load_existing_pickles and os.path.isfile(model_file_name):
                     model = load_model(model_file_name)
@@ -879,8 +615,15 @@ def run_dc_lstm(P_trace, P_epoch):
 
                 if convert_output_to_binary:
                     y_pred = model.predict(X_test)
+
+                    # np.savetxt('y_test1.txt', y_test, delimiter=',')
+                    # np.savetxt('y_pred1.txt', y_pred, delimiter=',')
+
                     y_pred[y_pred >= 0.5] = 1
                     y_pred[y_pred < 0.5] = 0
+
+                    # np.savetxt('y_test2.txt', y_test, delimiter=',')
+                    # np.savetxt('y_pred2.txt', y_pred, delimiter=',')
 
                     aaaaa = np.packbits(np.array(y_test, dtype=np.bool).reshape(-1, 2, 8)[:, ::-1]).view(np.uint16)
                     bbbbb = np.packbits(np.array(y_pred, dtype=np.bool).reshape(-1, 2, 8)[:, ::-1]).view(np.uint16)
@@ -910,6 +653,16 @@ def run_dc_lstm(P_trace, P_epoch):
                     np.savetxt(
                         '%s/y_test_predicted_mem2_%s_%s.txt' % (NOTEBOOK_DATA_DIRECTORY, scenario_name, unique_key),
                         np.array(original_predictions_diffs), delimiter=',\n', fmt='%s')
+
+                    # print(sum(xxx is not None for xxx in original_testing_diffs))
+                    # return 1
+
+                    # original_testing_diffs = [(-1 if int(k[0]) == 1 else 1)*int(k[2:]) for k in original_testing_diffs[0] if k is not None]
+                    # original_predictions_diffs = [(-1 if int(k[0]) == 1 else 1)*int(k[2:]) for k in original_predictions_diffs[0] if k is not None]
+
+                    # a = [((-1 if int(k[0]) == 1 else 1)*int(k[2:]), (-1 if int(l[0]) == 1 else 1)*int(l[2:])) for k,l in zip(original_testing_diffs, original_predictions_diffs) if l is not None and k is not None]
+                    # print a[:100]
+                    # return 1
                     tmp = [((-1 if int(k[0]) == 1 else 1) * int(k[2:]), (-1 if int(l[0]) == 1 else 1) * int(
                         l[2:])) if l is not None and k is not None and l != dummy_word and k != dummy_word else (
                     None, None) for k, l in zip(original_testing_diffs[0], original_predictions_diffs[0])]
@@ -924,6 +677,11 @@ def run_dc_lstm(P_trace, P_epoch):
                     predicted_memory_address = []
                     tmp = list(y_test_raw)
                     for act, pred in zip(original_testing_diffs, original_predictions_diffs):
+                        # if i%10000 == 0:
+                        #    print i
+                        # if i < 5:
+                        #    #print i, int(list(y_test_raw)[i+1], 16), act, int(list(y_test_raw)[i+1], 16) + act
+                        #    print hex(int(list(y_test_raw)[i+1], 16) + act), hex(int(list(y_test_raw)[i+1], 16) + pred)
                         actual_memory_address.append(hex(int(tmp[i + 1], 16) + act) if act is not None else "-1")
                         predicted_memory_address.append(hex(int(tmp[i + 1], 16) + pred) if pred is not None else "-1")
                         i += 1
@@ -955,6 +713,8 @@ def run_dc_lstm(P_trace, P_epoch):
                                                       scenario_name=scenario_name)
 
                     print("Train Accuracy %f, Test Accuracy %f" % (train_accuracy, accuracy))
+
+
                     return train_accuracy, accuracy, misc_stats
                 # =====================================================================================================
 
@@ -968,13 +728,6 @@ def run_dc_lstm(P_trace, P_epoch):
         'swaptions_old_1_1M.out': 100000,
         'blackscholes_old_1_1M.out': 100000,
         'fluidanimate_old_1_1M.out': 100000,
-        'dedup_1_1M.out': 100000,
-        'facesim_1_1M.out': 100000,
-        'freqmine_1_1M.out': 100000,
-        'raytrace_1_1M.out': 100000,
-        'streamcluster_1_1M.out': 100000,
-        'vips_1_1M.out': 100000,
-        'x264_1_1M.out': 100000
     }
 
     CACHE_SIZES = [16, 32, 64, 128]
@@ -1012,83 +765,81 @@ def run_dc_lstm(P_trace, P_epoch):
 
     # # 50/50 Split Offline Analysis
     # WARNING: Some of the parameters have been removed from the implementation since the scope of this research (prefetching) is limited.
-    for trace in TRACE_FILE_NAMES:
-        if True and trace in P_trace:
-            for model_type in [
-                "double_fpga"]:  # , "lsb_fpga", "vanilla"]:  # "vanilla",  "custom_loss_fpga" , "fpga", "lsb_fpga",
-                scenario_counter = 1
-                trace_short = trace.split(".")[0].replace("_mem", "").capitalize()
-                for i in range(5, 6):
-                    # we store the scenario name as key, but also add it in the scenario configuration for availability in each function
-                    modeling_scenarios[
-                        'LSTM_%s_Offline_Prefetching_%s_%s' % (model_type.upper(), scenario_counter, trace_short)] = {
-                        # trace params
-                        'scenario_name': 'LSTM_%s_Offline_Prefetching_%s_%s' % (
-                        model_type.upper(), scenario_counter, trace_short),
-                        'app_name': trace.split(".")[0].split("_")[0].capitalize(),
-                        'trace_file_name': trace,
-                        'load_existing_pickles': True,
-                        'skip_run_if_previous_stats_found': True,
+    if True and trace in P_trace:
+        for model_type in ["double_fpga"]:  # , "lsb_fpga", "vanilla"]:  # "vanilla",  "custom_loss_fpga" , "fpga", "lsb_fpga",
+            scenario_counter = 1
+            trace_short = trace.split(".")[0].replace("_mem", "").capitalize()
+            for i in range(5, 6):
+                # we store the scenario name as key, but also add it in the scenario configuration for availability in each function
+                modeling_scenarios[
+                    'LSTM_%s_Offline_Prefetching_%s_%s' % (model_type.upper(), scenario_counter, trace_short)] = {
+                    # trace params
+                    'scenario_name': 'LSTM_%s_Offline_Prefetching_%s_%s' % (
+                    model_type.upper(), scenario_counter, trace_short),
+                    'app_name': trace.split(".")[0].split("_")[0].capitalize(),
+                    'trace_file_name': trace,
+                    'load_existing_pickles': B_use_exist,
+                    'skip_run_if_previous_stats_found': True,
 
-                        # dataset params
-                        'keep_read_access_only': False,
-                        'number_of_rows_to_model': 400000,
-                        'number_of_rows_to_skip': trace_offsets[trace],  # int(TRACE_FILE_NAME_SIZES[trace]*3.0/5.0),
-                        'pretrain_type': None,
+                    # dataset params
+                    'keep_read_access_only': False,
+                    'number_of_rows_to_model': 2600000,
+                    'number_of_rows_to_skip': 0,  # int(TRACE_FILE_NAME_SIZES[trace]*3.0/5.0),
+                    'pretrain_type': None,
 
-                        'model_diffs': True,
-                        # set to True if you want instead of the actual time series to model memory location differences.
-                        'vocabulary_maximum_size': 50000 if "vanilla" in model_type else 0,
-                        # this is to further reduce the dictionary size
-                        'vocabulary_mimimum_word_frequency_quantile': 0.95 if not "fpga" in model_type else 1,
-                        "prune_lsb": True if "lsb" in model_type else False,
-                        "prune_length": 1,
-                        # this corresponds to how many "letters" to be pruned from the HEX address (1 letter = 4 bits)
-                        "bit_size": 16,
+                    'model_diffs': True,
+                    # set to True if you want instead of the actual time series to model memory location differences.
+                    'vocabulary_maximum_size': 50000 if "vanilla" in model_type else 0,
+                    # this is to further reduce the dictionary size
+                    'vocabulary_mimimum_word_frequency_quantile': 0.95 if not "fpga" in model_type else 1,
+                    "prune_lsb": True if "lsb" in model_type else False,
+                    "prune_length": 1,
+                    # this corresponds to how many "letters" to be pruned from the HEX address (1 letter = 4 bits)
+                    "bit_size": 16,
 
-                        # Not Used
-                        'decompose_timeseries': False,  # not used #TODO: remove
-                        'decomposition_frequency': 10,  # not used #TODO: remove
-                        'use_manual_encoding': False,
-                        # not used #TODO: remove # True applies only to non-diff time series. --TODO: remove completely.
+                    # Not Used
+                    'decompose_timeseries': False,  # not used #TODO: remove
+                    'decomposition_frequency': 10,  # not used #TODO: remove
+                    'use_manual_encoding': False,
+                    # not used #TODO: remove # True applies only to non-diff time series. --TODO: remove completely.
 
-                        # model params
-                        'model_type': model_type,  # None, #'fpga',
-                        'look_back_window': 3,
-                        'lstm_epochs': P_epoch,  # 20,
-                        'lstm_batch_size': 256 if "fpga" in model_type else 256,
-                        'lstm_size': 50,
-                        'dropout_ratio': 0.1,
-                        'embedding_size': 10,
-                        'verbosity': 1,
-                        'test_ratio': 0.1 * float(i),  # this does not apply to online learning
-                        'prediction_batch_size': 4096,
-                        # 4096,  # this has an impact only if on_the_fly_testing is disabled
-                        'loss_function': 'categorical_crossentropy' if not "fpga" in model_type else "binary_crossentropy" if model_type in [
-                            "fpga", "lsb_fpga", "double_fpga"] else "",
-                        # 'categorical_crossentropy', 'binary_crossentropy', # custom_crossentropy,  # binary_cross_entropy is needed for multi-label classification, otherwise we need categorical_crossentropy
-                        'activation_function': "softmax" if not "fpga" in model_type else "sigmoid",
-                        'convert_output_to_binary': True if "fpga" in model_type else False,
-                        'encode_inputs': True if "fpga" in model_type else False,
+                    # model params
+                    'model_type': model_type,  # None, #'fpga',
+                    'look_back_window': 3,
+                    'lstm_epochs': P_epoch,  # 20,
+                    'lstm_batch_size': 256 if "fpga" in model_type else 256,
+                    'lstm_size': 50,
+                    'dropout_ratio': 0.1,
+                    'embedding_size': 10,
+                    'verbosity': 1,
+                    'test_ratio': 0.1 * float(i),  # this does not apply to online learning
+                    'prediction_batch_size': 4096,
+                    # 4096,  # this has an impact only if on_the_fly_testing is disabled
+                    'loss_function': 'categorical_crossentropy' if not "fpga" in model_type else "binary_crossentropy" if model_type in [
+                        "fpga", "lsb_fpga", "double_fpga"] else "",
+                    # 'categorical_crossentropy', 'binary_crossentropy', # custom_crossentropy,  # binary_cross_entropy is needed for multi-label classification, otherwise we need categorical_crossentropy
+                    'activation_function': "softmax" if not "fpga" in model_type else "sigmoid",
+                    'convert_output_to_binary': True if "fpga" in model_type else False,
+                    'encode_inputs': True if "fpga" in model_type else False,
 
-                        # run-time params
-                        'on_the_fly_testing': False,
-                        # if True, it will run testing on the whole data for each epoch (good for plotting performance). Not used if online_retraining is enabled.
-                        'plot_timeseries': False,
+                    # run-time params
+                    'on_the_fly_testing': False,
+                    # if True, it will run testing on the whole data for each epoch (good for plotting performance). Not used if online_retraining is enabled.
+                    'plot_timeseries': False,
 
-                        'online_retraining': False,
-                        # if this is True, then we model number_of_rows_to_model samples and then generate predictions for until the accuracy becomes smaller than online_learning_accuracy_threshold, and then we retrain etc.
-                        'online_learning_accuracy_threshold': 0.6,
-                        # It is used only if online_retraining is set to True.
-                        'online_retraining_periods': 5,  # It is used only if online_retraining is set to True.
-                        'online_retraining_period_size': 10000,
-                        # How many predictions to run before measuring cummulative accuracy for the given period. It is used only if online_retraining is set to True.
+                    'online_retraining': False,
+                    # if this is True, then we model number_of_rows_to_model samples and then generate predictions for until the accuracy becomes smaller than online_learning_accuracy_threshold, and then we retrain etc.
+                    'online_learning_accuracy_threshold': 0.6,
+                    # It is used only if online_retraining is set to True.
+                    'online_retraining_periods': 5,  # It is used only if online_retraining is set to True.
+                    'online_retraining_period_size': 10000,
+                    # How many predictions to run before measuring cummulative accuracy for the given period. It is used only if online_retraining is set to True.
 
-                        'CACHE_SIZES': CACHE_SIZES,
-                        'CACHE_BLOCK_SIZES': CACHE_BLOCK_SIZES,
-                        'CACHE_REPLACEMENT_ALGOS': CACHE_REPLACEMENT_ALGOS
-                    }
-                    scenario_counter += 1
+                    'CACHE_SIZES': CACHE_SIZES,
+                    'CACHE_BLOCK_SIZES': CACHE_BLOCK_SIZES,
+                    'CACHE_REPLACEMENT_ALGOS': CACHE_REPLACEMENT_ALGOS
+                }
+                scenario_counter += 1
 
     # calculate a unique ID for each scenario based on its values
     tmp_scenarios = modeling_scenarios.copy()
@@ -1107,5 +858,9 @@ def run_dc_lstm(P_trace, P_epoch):
         for scenario_name, scenario in modeling_scenarios.items():
             lstm_modeling_worker(scenario)
 
-for trace in TRACE_FILE_NAMES:
-    run_dc_lstm([trace],20)
+P_trace=TRACE_DIRECTORY+"/data_combine/train.out"
+P_test=TRACE_DIRECTORY+"/data_combine/test.out"
+P_epoch=20
+P_model_name="Pretrain"
+B_use_exist=False
+run_dc_lstm(P_trace, P_test, P_epoch,P_model_name,B_use_exist)
