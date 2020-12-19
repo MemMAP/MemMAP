@@ -13,6 +13,8 @@ This repo contains code for the paper, [MemMAP: Compact and Generalizable Meta-L
 ## Dataset 
 The trace uses the PARSEC benchmark(https://parsec.cs.princeton.edu/), generated using Pin tool, see example *Memory Reference Trace* (https://software.intel.com/sites/landingpage/pintool/docs/97503/Pin/html/)
 
+In `data` folder, two sample raw traces are given to run the scripts.
+
 ## Dependencies
 * python: 3.x
 * TensorFlow v1.0+
@@ -32,11 +34,12 @@ The specialized model uses doubly compressed LSTM discribed in paper:
   pages={461--470},
   year={2019}
 }
-
 ```
+### Train and test
+
 First, `cd Specialized`,
 
-Then run the script use `python3 Specialized.py bodytrack_1_1M.out 20`, where argv[1] is the trace file name in folder `../data/`, argv[2] is the training epochs. The length of training and testing sequences are both 200k.
+Then run the script use `python3 Specialized.py bodytrack_1_1M.out 20`, where the first argument is the trace file name in folder `../data/`, the second argument is the training epochs. The length of training and testing sequences are both hardcoded as 200k.
 
 ## Cacatenated Model
 
@@ -44,10 +47,18 @@ Then run the script use `python3 Specialized.py bodytrack_1_1M.out 20`, where ar
 
 ### Preprocessing
 
-Run `python3 ./prep_concac.py 200000`, where the argument is the length of deltas sequences.
+First, run `python3 concatenate_data.py [num]` to concatenate the traces, where the argument *num* is  the number of traces. 
 
-### Training and Testing
+* To run the sample traces directly, set *num=2*.
 
-```python3 Train_all_Test_each.py 200000 20```, where argv[1] is the length of sequences and argv[2] is the training epochs.
+* To run all 13 applications, set *num=13*, the trace list variable *TRACE_FILE_NAMES* in "Concatenate_data.py" should be modified accordingly.
+
+* The processed training and testing data is saved in folder `./data_combine`.
+
+Then, run `python3 ./gen_conc_np.py [num]` to generate training set and testing set in numpy files, and tokenization in pickles.
+
+### Model Training
+
+```python3 ./conc_model_train.py [num] [epoch]```, where argv[1] is the number of traces and argv[2] is the training epochs.
 
 ## Meta-DCLSTM
