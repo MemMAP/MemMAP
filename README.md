@@ -35,7 +35,7 @@ The specialized model uses doubly compressed LSTM discribed in paper:
   year={2019}
 }
 ```
-### Train and test
+### Model Training and Testing
 
 First, `cd Specialized`,
 
@@ -57,7 +57,7 @@ First, run `python3 concatenate_data.py [num]` to concatenate the traces, where 
 
 Then, run `python3 ./gen_conc_np.py [num]` to generate training set and testing set in numpy files, and tokenization in pickles.
 
-### Model Training
+### Model Training and Testing
 
 ```python3 ./conc_model_train.py [num] [epoch]```, where argv[1] is the number of traces and argv[2] is the training epochs.
 
