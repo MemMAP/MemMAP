@@ -59,6 +59,6 @@ Then, run `python3 ./gen_conc_np.py [num]` to generate training set and testing 
 
 ### Model Training and Testing
 
-```python3 ./conc_model_train.py [num] [epoch]```, where argv[1] is the number of traces and argv[2] is the training epochs.
+```python3 ./conc_model_train.py [num] [epoch]```, where *num* is the number of traces and *epoch*is the training epochs.
 
 ## Meta-DCLSTM
