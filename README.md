@@ -59,6 +59,16 @@ Then, run `python3 ./gen_conc_np.py [num]` to generate training set and testing 
 
 ### Model Training and Testing
 
-```python3 ./conc_model_train.py [num] [epoch]```, where *num* is the number of traces and *epoch*is the training epochs.
+```python3 ./conc_model_train.py [num] [epoch]```, where *num* is the number of traces and *epoch* is the training epochs.
 
 ## Meta-DCLSTM
+`cd ./Meta-DCLSTM`
+
+### Preprocessing
+
+Run `python3 prep_meta.py [len]`, the argument is the length of a sequence. This script does two thins: 1) converting the raw trace into deltas and save in `data_dt` folder, and 2) tokenize and binarize the deta traces, save processed files in `np_file` folder and `pk_file` folder.
+
+### Model Training and Testing
+
+Run `python3 meta-DCLSTM.py [len] [num]`, where *len* is the sequqnce length, set 200000; *num* is the number of tasks, for PARSEC benchmark, the task number = application number = 13. If using the given sample, then *num=2*
+
